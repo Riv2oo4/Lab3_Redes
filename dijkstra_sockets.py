@@ -1,8 +1,4 @@
 #!/usr/bin/env python3
-"""
-Dijkstra Router con comunicación por Sockets (Parte 1)
-Cada nodo es un proceso independiente que se comunica via TCP sockets
-"""
 
 import argparse
 import json
@@ -17,7 +13,7 @@ class DijkstraNode:
     def __init__(self, node_id: str, port: int, topo_file: str, names_file: str = None):
         self.node_id = node_id
         self.port = port
-        self.neighbors = {}  # {neighbor_id: (host, port)}
+        self.neighbors = {}  
         self.routing_table = []
         
         # Cargar topología
@@ -27,7 +23,6 @@ class DijkstraNode:
         self.graph = Graph.from_topology(topo_data)
         self.router = DijkstraRouter(self.graph)
         
-        # Cargar nombres si se proporciona
         self.node_addresses = {}
         if names_file:
             with open(names_file, 'r') as f:
@@ -35,15 +30,12 @@ class DijkstraNode:
                 if names_data.get("type") == "names":
                     self.node_addresses = names_data["config"]
         
-        # Socket server
         self.server_socket = None
         self.running = False
         
-        # Threads
         self.server_thread = None
         
     def start(self):
-        """Inicia el nodo (servidor y descubrimiento de vecinos)"""
         print(f"Iniciando nodo {self.node_id} en puerto {self.port}")
         
         # Calcular tabla de ruteo inicial
@@ -52,7 +44,7 @@ class DijkstraNode:
         # Iniciar servidor
         self.start_server()
         
-        # Descubrir vecinos (simular con puertos consecutivos)
+        # Descubrir vecinos 
         self.discover_neighbors()
         
         # Intercambiar información inicial
@@ -62,7 +54,6 @@ class DijkstraNode:
         self.print_routing_table()
         
     def start_server(self):
-        """Inicia el servidor TCP para recibir mensajes"""
         try:
             self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -80,7 +71,6 @@ class DijkstraNode:
             sys.exit(1)
     
     def server_loop(self):
-        """Loop principal del servidor"""
         while self.running:
             try:
                 client_socket, addr = self.server_socket.accept()
@@ -97,7 +87,6 @@ class DijkstraNode:
                     print(f"Error en server loop: {e}")
     
     def handle_client(self, client_socket: socket.socket, addr):
-        """Maneja mensajes entrantes de un cliente"""
         try:
             data = client_socket.recv(4096).decode('utf-8')
             if data:
@@ -114,7 +103,6 @@ class DijkstraNode:
             client_socket.close()
     
     def process_message(self, message: Dict[str, Any]):
-        """Procesa mensajes recibidos según el protocolo"""
         msg_type = message.get("type")
         msg_from = message.get("from")
         
@@ -130,7 +118,6 @@ class DijkstraNode:
             print(f"Tipo de mensaje desconocido: {msg_type}")
     
     def handle_hello_message(self, message: Dict[str, Any]):
-        """Maneja mensajes HELLO para descubrimiento de vecinos"""
         sender = message.get("from")
         sender_port = message.get("payload", {}).get("port")
         
@@ -139,15 +126,12 @@ class DijkstraNode:
             print(f"Vecino descubierto: {sender} en puerto {sender_port}")
     
     def handle_info_message(self, message: Dict[str, Any]):
-        """Maneja mensajes INFO con tablas de ruteo"""
         sender = message.get("from")
         routing_table = message.get("payload", {}).get("routing_table", [])
         
         print(f"Tabla de ruteo recibida de {sender}: {len(routing_table)} entradas")
-        # En una implementación completa, aquí actualizarías tu conocimiento de la red
     
     def handle_data_message(self, message: Dict[str, Any]):
-        """Maneja mensajes de datos de usuario"""
         dest = message.get("to")
         payload = message.get("payload")
         
@@ -159,7 +143,6 @@ class DijkstraNode:
             self.forward_message(message)
     
     def discover_neighbors(self):
-        """Descubre vecinos enviando mensajes HELLO"""
         # Simular descubrimiento enviando HELLO a puertos consecutivos
         base_port = 8000
         for i in range(5):  # Probar puertos 8000-8004
@@ -169,7 +152,6 @@ class DijkstraNode:
                 time.sleep(0.1)  # Pequeña pausa entre intentos
     
     def send_hello(self, target_port: int):
-        """Envía mensaje HELLO a un puerto específico"""
         try:
             hello_message = {
                 "proto": "dijkstra",
@@ -186,11 +168,9 @@ class DijkstraNode:
             self.send_message_to_port('localhost', target_port, hello_message)
             
         except Exception as e:
-            # Es normal que falle si no hay nodo en ese puerto
             pass
     
     def exchange_routing_info(self):
-        """Intercambia información de ruteo con vecinos conocidos"""
         if not self.neighbors:
             return
             
@@ -204,10 +184,9 @@ class DijkstraNode:
                 print(f"Error enviando a {neighbor_id}: {e}")
     
     def send_message_to_port(self, host: str, port: int, message: Dict[str, Any]):
-        """Envía mensaje a un host:puerto específico"""
         try:
             client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            client_socket.settimeout(2)  # Timeout de 2 segundos
+            client_socket.settimeout(2)  
             client_socket.connect((host, port))
             
             message_json = json.dumps(message)
@@ -222,7 +201,6 @@ class DijkstraNode:
             raise Exception(f"Error enviando mensaje a {host}:{port}: {e}")
     
     def forward_message(self, message: Dict[str, Any]):
-        """Forward un mensaje según la tabla de ruteo"""
         dest = message.get("to")
         
         # Buscar next hop en la tabla de ruteo
@@ -243,7 +221,6 @@ class DijkstraNode:
             print(f"No se encontró ruta para {dest}")
     
     def calculate_routing_table(self):
-        """Calcula la tabla de ruteo usando Dijkstra"""
         try:
             result = self.router.run(self.node_id)
             self.routing_table = self.router.build_forwarding_table(result, self.node_id)
@@ -253,7 +230,6 @@ class DijkstraNode:
             self.routing_table = []
     
     def print_routing_table(self):
-        """Imprime la tabla de ruteo de forma legible"""
         print(f"\nTabla de ruteo para {self.node_id}:")
         print("-" * 40)
         print(f"{'Destino':<10} {'NextHop':<10} {'Costo':<10}")
@@ -274,7 +250,6 @@ class DijkstraNode:
         print("-" * 40)
     
     def send_user_message(self, dest: str, message: str):
-        """Envía un mensaje de usuario a otro nodo"""
         user_message = {
             "proto": "dijkstra",
             "type": "message",
@@ -304,7 +279,7 @@ def main():
     
     args = parser.parse_args()
     
-    # Crear y iniciar nodo
+    # Crear e iniciar nodo
     node = DijkstraNode(args.node_id, args.port, args.topo, args.names)
     
     try:
