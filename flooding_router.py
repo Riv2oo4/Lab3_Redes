@@ -56,16 +56,21 @@ def envelope_message(proto: str, typ: str, src: str, dst: str, ttl: int, payload
     }
 
 class FloodingNode:
-    def __init__(self, node_id: str, graph: Graph, endpoints: Dict[str, Tuple[str, int]]):
+    def __init__(self, node_id: str, graph: Graph, endpoints: Dict[str, Tuple[str, int]], listen: bool = True):
         self.node_id = node_id
         self.graph = graph
         self.endpoints = endpoints
         self.seen: Set[str] = set()
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        host, port = self.endpoints[self.node_id]
-        self.sock.bind((host, port))
+        self.listen = listen
+        if self.listen:
+            host, port = self.endpoints[self.node_id]
+            # Bind solo cuando este proceso actuará como listener del nodo
+            self.sock.bind((host, port))
 
     def start(self) -> None:
+        if not self.listen:
+            return
         t = threading.Thread(target=self._serve, daemon=True)
         t.start()
 
@@ -79,22 +84,30 @@ class FloodingNode:
             self._handle(msg)
 
     def _msg_key(self, msg: Dict[str, Any]) -> str:
-        return json.dumps({"from": msg.get("from"), "to": msg.get("to"), "payload": msg.get("payload")}, sort_keys=True, ensure_ascii=False)
+        # Clave simple para evitar duplicados básicos
+        return json.dumps(
+            {"from": msg.get("from"), "to": msg.get("to"), "payload": msg.get("payload")},
+            sort_keys=True, ensure_ascii=False
+        )
 
     def _handle(self, msg: Dict[str, Any]) -> None:
         key = self._msg_key(msg)
         if key in self.seen:
             return
         self.seen.add(key)
+
         if msg.get("to") == self.node_id or msg.get("type") == "echo":
             print(json.dumps({"node": self.node_id, "event": "recv", "msg": msg}, ensure_ascii=False))
             if msg.get("type") == "echo":
                 return
+
         ttl = int(msg.get("ttl", 0)) - 1
         if ttl <= 0:
             return
+
         fwd = dict(msg)
         fwd["ttl"] = ttl
+        # Nota: usamos 'from' como referencia para no devolver al origen inmediato
         self._flood(fwd, came_from=msg.get("from"))
 
     def _flood(self, msg: Dict[str, Any], came_from: Optional[str] = None) -> None:
@@ -110,10 +123,12 @@ class FloodingNode:
                 pass
 
     def send(self, to: str, payload: Any, ttl: int = 8) -> None:
+        ttl = max(1, int(ttl))
         msg = envelope_message("flooding", "message", self.node_id, to, ttl, payload)
         self._flood(msg, came_from=None)
 
     def ping(self, ttl: int = 4) -> None:
+        ttl = max(1, int(ttl))
         for neigh in self.graph.neighbors(self.node_id):
             msg = envelope_message("flooding", "echo", self.node_id, neigh, ttl, {"ts": time.time(), "via": self.node_id})
             host, port = self.endpoints.get(neigh, ("127.0.0.1", 0))
@@ -136,7 +151,7 @@ def load_endpoints(path: str) -> Dict[str, Tuple[str, int]]:
     return eps
 
 def main() -> None:
-    ap = argparse.ArgumentParser(description="Flooding - reenvío por inundación con TTL.")
+    ap = argparse.ArgumentParser(description="Flooding - reenvío por inundación con TTL.")
     ap.add_argument("--topo", required=True, help="Archivo JSON de topología {type:'topo', config:{...}}")
     ap.add_argument("--node", required=True, help="ID del nodo local")
     ap.add_argument("--endpoints", required=True, help="JSON con endpoints { 'A':['127.0.0.1',5000], ... }")
@@ -155,9 +170,14 @@ def main() -> None:
     if args.node not in eps:
         raise SystemExit("Nodo local sin endpoint")
 
-    node = FloodingNode(args.node, g, eps)
-    node.start()
+    # Si solo vamos a enviar o a pingear, NO escuchamos (evitamos bind y el WinError 10048)
+    listen = not (args.send or args.ping)
+    node = FloodingNode(args.node, g, eps, listen=listen)
 
+    if listen:
+        node.start()
+
+    # Pequeña pausa para que un listener recién creado termine de arrancar
     time.sleep(0.2)
 
     if args.ping:
@@ -168,7 +188,8 @@ def main() -> None:
             raise SystemExit("--send requiere --to y --msg")
         node.send(args.to, args.msg, ttl=max(1, args.ttl))
 
-    while True:
+    # Mantener vivo solo si estamos actuando como listener
+    while listen:
         time.sleep(1.0)
 
 if __name__ == "__main__":
