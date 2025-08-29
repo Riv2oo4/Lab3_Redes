@@ -8,9 +8,7 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Tuple, Optional, Iterable, Any
 
 
-# ------------------------------
-# Modelo de grafo
-# ------------------------------
+
 @dataclass
 class Graph:
     adj: Dict[str, Dict[str, float]] = field(default_factory=dict)
@@ -25,14 +23,7 @@ class Graph:
 
     @classmethod
     def from_topology(cls, topo: Dict[str, Any], directed: bool = False) -> "Graph":
-        """
-        Carga una topología con formato:
-          {"type":"topo","config": {
-              "A": ["B","C"],                   # pesos 1.0 por defecto
-              "B": {"A": 1.2, "D": 3.0},       # o dict con pesos
-              ...
-          }}
-        """
+
         if topo.get("type") != "topo" or "config" not in topo:
             raise ValueError('Topología inválida: se esperaba {"type":"topo","config":{...}}')
 
@@ -57,18 +48,14 @@ class Graph:
         return self.adj.get(u, {})
 
 
-# ------------------------------
-# Resultado + utilidades
-# ------------------------------
+
 @dataclass
 class DijkstraResult:
     dist: Dict[str, float]
     prev: Dict[str, Optional[str]]
 
     def next_hop(self, src: str, dst: str) -> Optional[str]:
-        """
-        Devuelve el primer salto desde src hacia dst (o None si no alcanzable).
-        """
+       
         if dst not in self.dist or math.isinf(self.dist[dst]):
             return None
         if src == dst:
@@ -83,9 +70,7 @@ class DijkstraResult:
         return curr if parent == src else None
 
 
-# ------------------------------
-# Enrutador Dijkstra (SPF)
-# ------------------------------
+
 class DijkstraRouter:
     def __init__(self, graph: Graph):
         self.g = graph
@@ -123,9 +108,7 @@ class DijkstraRouter:
 
     @staticmethod
     def build_forwarding_table(result: DijkstraResult, source: str) -> List[Dict[str, Any]]:
-        """
-        Devuelve una tabla legible: [{dest, next_hop, cost}, ...]
-        """
+    
         table: List[Dict[str, Any]] = []
         for dst, cost in sorted(result.dist.items(), key=lambda kv: (math.isinf(kv[1]), kv[0])):
             nh = source if dst == source else result.next_hop(source, dst)
@@ -139,9 +122,7 @@ class DijkstraRouter:
 
     @staticmethod
     def build_forwarding_map(result: DijkstraResult, source: str) -> Dict[str, Optional[str]]:
-        """
-        Devuelve un mapa simple destino->next_hop (útil para integrarlo con tu Forwarding).
-        """
+ 
         fib: Dict[str, Optional[str]] = {}
         for dst in result.dist.keys():
             if dst == source:
@@ -150,13 +131,9 @@ class DijkstraRouter:
         return fib
 
 
-# ------------------------------
-# Envelopes y utilidades de salida
-# ------------------------------
+
 def envelope_info(source: str, table: List[Dict[str, Any]]) -> Dict[str, Any]:
-    """
-    Envelope JSON compatible con el protocolo del laboratorio para INFO/TABLE.
-    """
+
     return {
         "proto": "dijkstra",
         "type": "info",
@@ -186,13 +163,7 @@ def print_table_human(table: List[Dict[str, Any]], source: str) -> None:
         print(f"{r[0]:<{w0}}  {r[1]:<{w1}}  {r[2]:>{w2}}")
 
 def shortest_paths(graph, source: str):
-    """
-    Calcula distancias mínimas (Dijkstra) y construye:
-      - dist: destino -> costo mínimo
-      - prev: destino -> predecesor en el camino más corto
-      - nh  : destino -> next-hop (primer salto) desde 'source'
-    El 'graph' debe exponer: graph.nodes() y graph.neighbors(u) -> dict[v]=peso
-    """
+
     # Inicialización
     dist: Dict[str, float] = {u: math.inf for u in graph.nodes()}
     prev: Dict[str, Optional[str]] = {u: None for u in graph.nodes()}
@@ -213,24 +184,20 @@ def shortest_paths(graph, source: str):
             if alt < dist.get(v, math.inf):
                 dist[v] = alt
                 prev[v] = u
-                # next-hop: si estoy en el origen, el primer salto hacia v es v;
-                # si no, heredo el primer salto que lleva hasta 'u'
+    
                 nh[v] = v if u == source else nh[u]
                 heapq.heappush(pq, (alt, v))
 
     return dist, prev, nh
 
 
-# ------------------------------
-# CLI (igual al tuyo, con opciones extra)
-# ------------------------------
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="Dijkstra - Tabla de ruteo (next-hop) desde un origen.")
     ap.add_argument("--topo", required=True, help="Ruta al archivo de topología (JSON).")
     ap.add_argument("--source", required=True, help="Nodo origen.")
     ap.add_argument("--json", action="store_true", help="Imprimir salida en JSON (envelope 'info').")
     ap.add_argument("--directed", action="store_true", help="Tratar la topología como grafo dirigido.")
-    # extra opcional: imprimir solo mapa destino->next_hop para integraciones
     ap.add_argument("--only-next-hops", action="store_true", help="Imprimir solo {dest: next_hop} en JSON.")
     args = ap.parse_args()
 

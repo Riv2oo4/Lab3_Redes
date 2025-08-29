@@ -11,9 +11,7 @@ from typing import Dict, Iterable, Any, Tuple, Optional, Set
 
 BUFFER_SIZE = 65535
 
-# ===========================
-# Grafo (igual a tu estilo)
-# ===========================
+
 @dataclass
 class Graph:
     adj: Dict[str, Dict[str, float]] = field(default_factory=dict)
@@ -50,9 +48,7 @@ class Graph:
         return self.adj.get(u, {}).keys()
 
 
-# ===========================
-# Protocolo / Envelope JSON
-# ===========================
+
 def envelope_message(
     proto: str,
     typ: str,
@@ -63,24 +59,20 @@ def envelope_message(
     headers: Optional[list] = None,
     mid: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """
-    Mensaje estándar del laboratorio. Incluimos un 'id' único para de-dup.
-    """
+
     return {
         "id": mid or str(uuid.uuid4()),
-        "proto": proto,           # "flooding"
-        "type": typ,              # "message" | "hello" | "info"
+        "proto": proto,           
+        "type": typ,              
         "from": src,
-        "to": dst,                # destino final (puede ser '*')
+        "to": dst,                
         "ttl": int(ttl),
-        "headers": headers or [], # aquí incluimos {"via": last_hop}
+        "headers": headers or [], 
         "payload": payload,
     }
 
 
-# ===========================
-# Carga de endpoints
-# ===========================
+
 def load_endpoints(path: str) -> Dict[str, Tuple[str, int]]:
     with open(path, "r", encoding="utf-8") as f:
         raw = json.load(f)
@@ -95,23 +87,19 @@ def load_endpoints(path: str) -> Dict[str, Tuple[str, int]]:
     return eps
 
 
-# ===========================
-# Nodo Flooding (UDP)
-# ===========================
+
 class FloodingNode:
     def __init__(self, node_id: str, graph: Graph, endpoints: Dict[str, Tuple[str, int]], listen: bool = True):
         self.node_id = node_id
         self.graph = graph
-        self.endpoints = endpoints        # nodo -> (host,port)
-        self.seen: Set[Tuple[str, str]] = set()  # (origin, id) para de-dup
+        self.endpoints = endpoints        
+        self.seen: Set[Tuple[str, str]] = set()  
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.listen = listen
         if self.listen:
             host, port = self.endpoints[self.node_id]
-            # Bind solo cuando este proceso actuará como listener del nodo
             self.sock.bind((host, port))
 
-    # ---- ciclo receptor ----
     def start(self) -> None:
         if not self.listen:
             return
@@ -127,7 +115,6 @@ class FloodingNode:
                 continue
             self._handle(msg)
 
-    # ---- utilidades internas ----
     @staticmethod
     def _get_header(headers: list, key: str, default=None):
         if not isinstance(headers, list):
@@ -138,7 +125,6 @@ class FloodingNode:
         return default
 
     def _handle(self, msg: Dict[str, Any]) -> None:
-        # Validación mínima
         if not isinstance(msg, dict):
             return
         proto = msg.get("proto")
@@ -156,7 +142,7 @@ class FloodingNode:
             return
         self.seen.add(key)
 
-        # Entrega local (si corresponde)
+        # Entrega local 
         if dst == self.node_id or dst == "*" or mtype == "hello":
             print(json.dumps({"node": self.node_id, "event": "recv", "msg": msg}, ensure_ascii=False))
 
@@ -165,7 +151,6 @@ class FloodingNode:
         if ttl <= 0:
             return
 
-        # Evitar rebote al último salto: usamos header "via"
         last_hop = self._get_header(msg.get("headers", []), "via", default=None)
 
         # Prepara copia con TTL decrementado y via = yo
@@ -192,27 +177,21 @@ class FloodingNode:
                 # ignora fallos puntuales de envío
                 pass
 
-    # ---- API de envío ----
     def send(self, to: str, payload: Any, ttl: int = 8) -> None:
-        """
-        Envía un mensaje 'message' hacia 'to' por flooding.
-        """
+  
         ttl = max(1, int(ttl))
         msg = envelope_message("flooding", "message", self.node_id, str(to), ttl, payload)
-        # primer salto: añade mi "via"
         msg["headers"].append({"via": self.node_id})
         self._flood(msg, exclude=None)
 
     def hello(self, ttl: int = 4) -> None:
-        """
-        Envía paquetes 'hello' a través de flooding (útil para demo/diagnóstico).
-        """
+ 
         ttl = max(1, int(ttl))
         msg = envelope_message("flooding", "hello", self.node_id, "*", ttl, {"ts": time.time()})
         msg["headers"].append({"via": self.node_id})
         self._flood(msg, exclude=None)
 
-DEBUG_FLOOD = True  # pon False para silenciar
+DEBUG_FLOOD = True  
 
 class FloodingCache:
     def __init__(self, max_items: int = 10000, entry_ttl: float = 60.0):
@@ -248,9 +227,7 @@ class FloodingCache:
         return True
 
 
-# ===========================
-# CLI
-# ===========================
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="Flooding - reenvío por inundación con TTL y de-dup por (origin,id).")
     ap.add_argument("--topo", required=True, help="Archivo JSON de topología {type:'topo', config:{...}}")
@@ -273,14 +250,12 @@ def main() -> None:
     if args.node not in eps:
         raise SystemExit("Nodo local sin endpoint en --endpoints")
 
-    # Si vamos a escuchar, hacemos bind; si solo enviamos, no hacemos bind para evitar conflictos
     listen = not (args.send or args.hello)
     node = FloodingNode(args.node, g, eps, listen=listen)
 
     if listen:
         node.start()
 
-    # pequeña pausa por si recién hicimos bind
     time.sleep(0.2)
 
     if args.hello:
@@ -291,7 +266,6 @@ def main() -> None:
             raise SystemExit("--send requiere --to y --msg")
         node.send(args.to, args.msg, ttl=max(1, args.ttl))
 
-    # Mantener vivo si estamos en modo listener
     while listen:
         time.sleep(1.0)
 

@@ -7,12 +7,10 @@ import time
 
 class LSDB:
     def __init__(self):
-    # origin -> (seq, expires, links)
         self.db: Dict[str, tuple[int, float, dict[str,float]]] = {}
 
 
     def apply_lsp(self, origin: str, seq: int, age: float, links: dict[str,float]) -> bool:
-        """Guarda si es nuevo/mas reciente; retorna True si cambia el grafo."""
         now = time.time()
         expires = now + min(age, LSP_AGE_SEC)
         cur = self.db.get(origin)

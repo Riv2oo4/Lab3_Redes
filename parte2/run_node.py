@@ -20,12 +20,12 @@ parser.add_argument("--peers", default="", help="lista host:port separados por c
 
 parser.add_argument("--transport", choices=["sockets", "redis"], default="sockets")
 
-# Redis settings (por defecto los que te compartieron)
+# Redis settings 
 parser.add_argument("--redis-host", default="lab3.redesuvg.cloud")
 parser.add_argument("--redis-port", type=int, default=6379)
 parser.add_argument("--redis-pass", default="UVGRedis2025")
 
-# Prefijo de canal: sección/topología (acuerden esto con todos)
+# Prefijo de canal: sección/topología 
 parser.add_argument("--channel-prefix", default="sec20.topologia1")
 
 args = parser.parse_args()
@@ -58,7 +58,7 @@ for n in neighbors:
     routing.update_neighbor_cost(n, 1.0)
 
 forwarding = None
-# Función de envío (la rellenamos según el adaptador elegido)
+# Función de envío 
 adapter = None
 
 def _send(peer_id, msg_dict):
@@ -66,7 +66,7 @@ def _send(peer_id, msg_dict):
 
 forwarding = Forwarding(node_id, _send, routing)
 
-# --- Selección de transporte ---
+# Selección de transporte 
 if args.transport == "sockets":
     adapter = SocketAdapter(
         node_id=node_id,

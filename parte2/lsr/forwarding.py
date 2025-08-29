@@ -8,13 +8,13 @@ from .flooding import FloodingCache
 class Forwarding:
     def __init__(self, node_id: str, send_func: Callable[[str, Dict], None], routing):
         self.node_id = node_id
-        self.send = send_func            # send(peer_id, msg_dict)
+        self.send = send_func            
         self.routing = routing
         self.cache = FloodingCache()
         self.lsp_seq = 0
         self.last_hello_sent: dict[str,float] = {}
 
-    # --- SALIENTES ---
+    # SALIENTES 
     def send_hello_all(self, neighbors: list[str]):
         t0 = time.time()
         for n in neighbors:
@@ -37,7 +37,7 @@ class Forwarding:
             for n in list(self.routing.costs_to_neighbors.keys()):
                 self.send(n, data(PROTO_FLOODING, self.node_id, dst, msg))
 
-    # --- ENTRANTES ---
+    # ENTRANTES
     def on_message(self, peer: str, msg: Dict):
         # decrementar TTL
         ttl = msg.get("ttl", MAX_TTL)

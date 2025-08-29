@@ -9,9 +9,9 @@ from .lsdb import LSDB
 class Routing:
     def __init__(self, node_id: str):
         self.node_id = node_id
-        self.mode = PROTO_LSR # o flooding / dijkstra
-        self.table: Dict[str,str] = {} # destino -> next_hop
-        self.costs_to_neighbors: Dict[str,float] = {} # medidos por HELLO
+        self.mode = PROTO_LSR 
+        self.table: Dict[str,str] = {} 
+        self.costs_to_neighbors: Dict[str,float] = {} 
         self.lsdb = LSDB()
         self._spf_lock = threading.Lock()
         self._spf_deadline = 0.0
@@ -40,7 +40,6 @@ class Routing:
                 return
         # Ejecutar SPF
         g = self.lsdb.to_graph()
-        # agregar enlaces locales del propio nodo (garantiza presencia)
         for n,c in self.costs_to_neighbors.items():
             g.add_link(self.node_id, n, c)
         dist, prev, nh = shortest_paths(g, self.node_id)
