@@ -28,14 +28,17 @@ class Forwarding:
             self.send(n, lsp(PROTO_LSR, self.node_id, n, self.node_id, self.lsp_seq, LSP_AGE_SEC, payload_links))
 
     def send_data(self, dst: str, msg: str):
-        # decidir next-hop (LSR/Dijkstra) o flooding
         nh = self.routing.next_hop(dst)
-        if nh:
+        if nh and self.routing.mode != PROTO_FLOODING:
+            # En LSR/Dijkstra: proto del modo actual
             self.send(nh, data(self.routing.mode, self.node_id, dst, msg))
-        else:
-            # flooding controlado
-            for n in list(self.routing.costs_to_neighbors.keys()):
-                self.send(n, data(PROTO_FLOODING, self.node_id, dst, msg))
+            return
+
+        # Flooding (si estás en modo flooding o no hay ruta)
+        for n in list(self.routing.costs_to_neighbors.keys()):
+            # data(...) ya pone: to=dst y payload={"dst":dst,"msg":msg}
+            self.send(n, data(PROTO_FLOODING, self.node_id, dst, msg))
+
 
     # ENTRANTES
     def on_message(self, peer: str, msg: Dict):
@@ -72,28 +75,55 @@ class Forwarding:
                 self.routing.schedule_spf()
 
         elif mtype == TYPE_DATA:
-            dst = msg.get("payload", {}).get("dst")
+            # --- DESTINO: preferir "to"; fallback a payload.dst
+            dst_raw = msg.get("to")
+            if not dst_raw:
+                dst_raw = msg.get("payload", {}).get("dst")
+
+            # Quitar prefijo tipo "sec20.topologia2." → quedarnos con el ID "nodo7"
+            dst_bare = None
+            if isinstance(dst_raw, str):
+                dst_bare = dst_raw.split(".")[-1].strip()
+
             origin = msg.get("from", "?")
             mid = msg.get("id", "?")
             proto = msg.get("proto", "?")
-            # DEBUG: recepción + TTL actual
-            print(f"[FLOOD/RX] node={self.node_id} from={origin} dst={dst} id={mid} ttl={msg.get('ttl')} via={peer} proto={proto}")
 
-            if dst == self.node_id:
-                print(f"[DATA] {msg['from']} -> {self.node_id}: {msg['payload'].get('msg')}")
+            # DEBUG: usar repr para detectar espacios ocultos
+            print(f"[RX/{proto.upper()}] node={repr(self.node_id)} from={origin} dst={repr(dst_raw)} bare={repr(dst_bare)} id={mid} ttl={msg.get('ttl')} via={peer}")
+
+            # --- ENTREGA LOCAL: destino específico (bare) o broadcast "*"
+            if dst_raw == "*" or (dst_bare and dst_bare == self.node_id.strip()):
+                user_msg = msg.get("payload", {})
+                if isinstance(user_msg, dict):
+                    user_msg = user_msg.get("msg", user_msg)
+                print(f"[DATA] {origin} -> {self.node_id}: {user_msg}")
+                # si el destino es específico, detenemos aquí; si es "*", seguimos reenviando
+                if dst_raw != "*":
+                    return
+
+            # --- NEXT-HOP por tabla (solo si no es broadcast)
+            nh = None
+            if dst_raw != "*" and dst_bare:
+                nh = self.routing.next_hop(dst_bare)
+
+            if nh:
+                print(f"[FWD/NH/{self.routing.mode.upper()}] node={self.node_id} -> next-hop={nh} dst={dst_bare} id={mid}")
+                self.send(nh, msg)
                 return
 
-            # reenviar por tabla si existe
-            nh = self.routing.next_hop(dst)
-            if nh:
-                print(f"[FWD/NH] node={self.node_id} -> next-hop={nh} dst={dst} id={mid}")
-                self.send(nh, msg)
+            # --- FLOODING controlado (sin ruta): de-dup + no devolver al que lo envió
+            origin = msg.get("from", "?")
+            mid = msg.get("id", "?")
+            if self.cache.should_forward(origin, mid):
+                msg_copy = dict(msg)
+                headers = list(msg_copy.get("headers", []))
+                headers.append({"via": self.node_id})
+                msg_copy["headers"] = headers
+
+                vecinos = [n for n in self.routing.costs_to_neighbors.keys() if n != peer]
+                print(f"[FWD/FLOOD] node={self.node_id} -> vecinos={vecinos} dst={dst_bare} id={mid}")
+                for n in vecinos:
+                    self.send(n, msg_copy)
             else:
-                # flooding controlado con de-dup
-                if self.cache.should_forward(origin, mid):
-                    vecinos = [n for n in self.routing.costs_to_neighbors.keys() if n != peer]
-                    print(f"[FWD/FLOOD] node={self.node_id} -> vecinos={vecinos} dst={dst} id={mid}")
-                    for n in vecinos:
-                        self.send(n, msg)
-                else:
-                    print(f"[FWD/FLOOD] node={self.node_id} DUP -> NO reenviar id={mid}")
+                print(f"[FWD/FLOOD] node={self.node_id} DUP -> NO reenviar id={mid}")

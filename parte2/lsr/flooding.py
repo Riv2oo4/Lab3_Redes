@@ -193,6 +193,39 @@ class FloodingNode:
 
 DEBUG_FLOOD = True  
 
+# class FloodingCache:
+#     def __init__(self, max_items: int = 10000, entry_ttl: float = 60.0):
+#         self._seen: Dict[Tuple[str, str], float] = {}
+#         self._max = max_items
+#         self._ttl = entry_ttl
+
+#     def _evict(self):
+#         now = time.time()
+#         expired = [k for k, exp in self._seen.items() if exp < now]
+#         for k in expired:
+#             self._seen.pop(k, None)
+#         if len(self._seen) > self._max:
+#             items = sorted(self._seen.items(), key=lambda kv: kv[1])
+#             to_drop = len(self._seen) - self._max
+#             for k, _ in items[:to_drop]:
+#                 self._seen.pop(k, None)
+
+#     def should_forward(self, origin: str, mid: str) -> bool:
+#         if not origin or not mid:
+#             if DEBUG_FLOOD:
+#                 print(f"[FLOOD/DEDUP] mensaje sin origin/id: origin={origin} id={mid} -> DROP")
+#             return False
+#         self._evict()
+#         key = (origin, mid)
+#         if key in self._seen:
+#             if DEBUG_FLOOD:
+#                 print(f"[FLOOD/DEDUP] DUP origin={origin} id={mid} -> DROP")
+#             return False
+#         self._seen[key] = time.time() + self._ttl
+#         if DEBUG_FLOOD:
+#             print(f"[FLOOD/DEDUP] NEW origin={origin} id={mid} -> FORWARD")
+#         return True
+
 class FloodingCache:
     def __init__(self, max_items: int = 10000, entry_ttl: float = 60.0):
         self._seen: Dict[Tuple[str, str], float] = {}
@@ -201,30 +234,24 @@ class FloodingCache:
 
     def _evict(self):
         now = time.time()
-        expired = [k for k, exp in self._seen.items() if exp < now]
-        for k in expired:
-            self._seen.pop(k, None)
+        for k, exp in list(self._seen.items()):
+            if exp < now:
+                self._seen.pop(k, None)
         if len(self._seen) > self._max:
             items = sorted(self._seen.items(), key=lambda kv: kv[1])
-            to_drop = len(self._seen) - self._max
-            for k, _ in items[:to_drop]:
+            for k, _ in items[: len(self._seen) - self._max]:
                 self._seen.pop(k, None)
 
     def should_forward(self, origin: str, mid: str) -> bool:
         if not origin or not mid:
-            if DEBUG_FLOOD:
-                print(f"[FLOOD/DEDUP] mensaje sin origin/id: origin={origin} id={mid} -> DROP")
             return False
         self._evict()
         key = (origin, mid)
         if key in self._seen:
-            if DEBUG_FLOOD:
-                print(f"[FLOOD/DEDUP] DUP origin={origin} id={mid} -> DROP")
             return False
         self._seen[key] = time.time() + self._ttl
-        if DEBUG_FLOOD:
-            print(f"[FLOOD/DEDUP] NEW origin={origin} id={mid} -> FORWARD")
         return True
+
 
 
 

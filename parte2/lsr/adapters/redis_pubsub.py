@@ -42,6 +42,7 @@ class RedisPubSubAdapter:
         self._pubsub = None
         self._my_channel = f"{self.prefix}.{self.node_id}"
 
+
         # arranca el loop
         self._thread.start()
         # crea conexión y suscripción en el loop
@@ -89,14 +90,17 @@ class RedisPubSubAdapter:
             host=self.redis_host,
             port=self.redis_port,
             password=self.redis_pass,
-            decode_responses=True,   # entregarnos str
+            decode_responses=True,
         )
-        # prueba conexión
         await self._r.ping()
         self._pubsub = self._r.pubsub()
         await self._pubsub.subscribe(self._my_channel)
-        # arranca el consumidor
+
+        # ✅ aquí sí existe self
+        print(f"[REDIS] {self.node_id} suscrito a canal: {self._my_channel}")
+
         asyncio.create_task(self._reader())
+
 
     async def _async_close(self):
         try:

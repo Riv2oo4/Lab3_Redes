@@ -1,9 +1,10 @@
 {
   "type": "topo",
   "config": {
+    "nodo6": ["nodo7"],
     "nodo7": ["nodo8", "nodo9"],
-    "nodo8": ["nodo7"],
-    "nodo9": ["nodo7"],
-    "nodo10": ["nodo11"]
+    "nodo8": ["nodo7", "nodo9"],
+    "nodo9": ["nodo7", "nodo8", "nodo10"],
+    "nodo10": ["nodo9"]
   }
 }

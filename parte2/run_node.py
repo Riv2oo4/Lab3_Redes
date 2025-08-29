@@ -62,6 +62,14 @@ forwarding = None
 adapter = None
 
 def _send(peer_id, msg_dict):
+    try:
+        if args.transport == "redis":
+            to_field = msg_dict.get("to")
+            if isinstance(to_field, str) and "." not in to_field:
+                msg_dict = dict(msg_dict)  # evita mutar el original por si se reusa
+                msg_dict["to"] = f"{args.channel_prefix}.{to_field}".rstrip(".")
+    except Exception:
+        pass
     adapter.send(peer_id, msg_dict)
 
 forwarding = Forwarding(node_id, _send, routing)
@@ -89,6 +97,7 @@ else:
 
 
 print(f"Nodo {node_id} levantado en modo {args.mode}. Vecinos: {neighbors}")
+
 print("Comandos: send <DEST> <TEXTO> | lsp | hello | table | quit")
 
 # Hilo periódico
