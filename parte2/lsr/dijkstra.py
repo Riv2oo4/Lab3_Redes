@@ -1,0 +1,257 @@
+# dijkstra_router.py
+from __future__ import annotations
+import argparse
+import json
+import math
+import heapq
+from dataclasses import dataclass, field
+from typing import Dict, List, Tuple, Optional, Iterable, Any
+
+
+# ------------------------------
+# Modelo de grafo
+# ------------------------------
+@dataclass
+class Graph:
+    adj: Dict[str, Dict[str, float]] = field(default_factory=dict)
+    directed: bool = False
+
+    def add_edge(self, u: str, v: str, w: float = 1.0) -> None:
+        self.adj.setdefault(u, {})
+        self.adj.setdefault(v, {})
+        self.adj[u][v] = float(w)
+        if not self.directed:
+            self.adj[v][u] = float(w)
+
+    @classmethod
+    def from_topology(cls, topo: Dict[str, Any], directed: bool = False) -> "Graph":
+        """
+        Carga una topología con formato:
+          {"type":"topo","config": {
+              "A": ["B","C"],                   # pesos 1.0 por defecto
+              "B": {"A": 1.2, "D": 3.0},       # o dict con pesos
+              ...
+          }}
+        """
+        if topo.get("type") != "topo" or "config" not in topo:
+            raise ValueError('Topología inválida: se esperaba {"type":"topo","config":{...}}')
+
+        g = cls(directed=directed)
+        cfg = topo["config"]
+
+        for u, neigh in cfg.items():
+            if isinstance(neigh, list):
+                for v in neigh:
+                    g.add_edge(str(u), str(v), 1.0)
+            elif isinstance(neigh, dict):
+                for v, w in neigh.items():
+                    g.add_edge(str(u), str(v), float(w))
+            else:
+                raise ValueError(f"Entrada de vecinos inválida para nodo {u}: {type(neigh)}")
+        return g
+
+    def nodes(self) -> Iterable[str]:
+        return self.adj.keys()
+
+    def neighbors(self, u: str) -> Dict[str, float]:
+        return self.adj.get(u, {})
+
+
+# ------------------------------
+# Resultado + utilidades
+# ------------------------------
+@dataclass
+class DijkstraResult:
+    dist: Dict[str, float]
+    prev: Dict[str, Optional[str]]
+
+    def next_hop(self, src: str, dst: str) -> Optional[str]:
+        """
+        Devuelve el primer salto desde src hacia dst (o None si no alcanzable).
+        """
+        if dst not in self.dist or math.isinf(self.dist[dst]):
+            return None
+        if src == dst:
+            return src
+        curr = dst
+        parent = self.prev.get(curr)
+        if parent is None:
+            return None
+        while parent is not None and parent != src:
+            curr = parent
+            parent = self.prev.get(curr)
+        return curr if parent == src else None
+
+
+# ------------------------------
+# Enrutador Dijkstra (SPF)
+# ------------------------------
+class DijkstraRouter:
+    def __init__(self, graph: Graph):
+        self.g = graph
+
+    def run(self, source: str) -> DijkstraResult:
+        if source not in self.g.adj:
+            raise ValueError(f"Nodo origen '{source}' no existe en la topología")
+
+        dist = {u: math.inf for u in self.g.nodes()}
+        prev = {u: None for u in self.g.nodes()}
+        dist[source] = 0.0
+
+        pq: List[Tuple[float, str]] = [(0.0, source)]
+        visited = set()
+
+        while pq:
+            d_u, u = heapq.heappop(pq)
+            if u in visited:
+                continue
+            visited.add(u)
+
+            if d_u > dist[u]:
+                continue
+
+            for v, w in self.g.neighbors(u).items():
+                if w < 0:
+                    raise ValueError("Dijkstra requiere pesos no negativos")
+                alt = dist[u] + w
+                if alt < dist[v]:
+                    dist[v] = alt
+                    prev[v] = u
+                    heapq.heappush(pq, (alt, v))
+
+        return DijkstraResult(dist=dist, prev=prev)
+
+    @staticmethod
+    def build_forwarding_table(result: DijkstraResult, source: str) -> List[Dict[str, Any]]:
+        """
+        Devuelve una tabla legible: [{dest, next_hop, cost}, ...]
+        """
+        table: List[Dict[str, Any]] = []
+        for dst, cost in sorted(result.dist.items(), key=lambda kv: (math.isinf(kv[1]), kv[0])):
+            nh = source if dst == source else result.next_hop(source, dst)
+            entry = {
+                "dest": dst,
+                "next_hop": nh,
+                "cost": cost if not math.isinf(cost) else float("inf"),
+            }
+            table.append(entry)
+        return table
+
+    @staticmethod
+    def build_forwarding_map(result: DijkstraResult, source: str) -> Dict[str, Optional[str]]:
+        """
+        Devuelve un mapa simple destino->next_hop (útil para integrarlo con tu Forwarding).
+        """
+        fib: Dict[str, Optional[str]] = {}
+        for dst in result.dist.keys():
+            if dst == source:
+                continue
+            fib[dst] = result.next_hop(source, dst)
+        return fib
+
+
+# ------------------------------
+# Envelopes y utilidades de salida
+# ------------------------------
+def envelope_info(source: str, table: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """
+    Envelope JSON compatible con el protocolo del laboratorio para INFO/TABLE.
+    """
+    return {
+        "proto": "dijkstra",
+        "type": "info",
+        "from": source,
+        "to": "*",
+        "ttl": 16,
+        "headers": [],
+        "payload": {"routing_table": table},
+    }
+
+
+def print_table_human(table: List[Dict[str, Any]], source: str) -> None:
+    rows = [("Destino", "NextHop", "Costo")]
+    for e in table:
+        cost = e["cost"]
+        if cost == float("inf") or (isinstance(cost, float) and math.isinf(cost)):
+            cost_str = "Infinity"
+        else:
+            cost_str = str(int(cost)) if float(cost).is_integer() else f"{cost:.3f}"
+        nh = e["next_hop"] if e["next_hop"] is not None else "null"
+        rows.append((e["dest"], str(nh), cost_str))
+    w0 = max(len(r[0]) for r in rows)
+    w1 = max(len(r[1]) for r in rows)
+    w2 = max(len(r[2]) for r in rows)
+    print(f"{rows[0][0]:<{w0}}  {rows[0][1]:<{w1}}  {rows[0][2]:>{w2}}")
+    for r in rows[1:]:
+        print(f"{r[0]:<{w0}}  {r[1]:<{w1}}  {r[2]:>{w2}}")
+
+def shortest_paths(graph, source: str):
+    """
+    Calcula distancias mínimas (Dijkstra) y construye:
+      - dist: destino -> costo mínimo
+      - prev: destino -> predecesor en el camino más corto
+      - nh  : destino -> next-hop (primer salto) desde 'source'
+    El 'graph' debe exponer: graph.nodes() y graph.neighbors(u) -> dict[v]=peso
+    """
+    # Inicialización
+    dist: Dict[str, float] = {u: math.inf for u in graph.nodes()}
+    prev: Dict[str, Optional[str]] = {u: None for u in graph.nodes()}
+    nh:   Dict[str, str] = {source: source}
+    dist[source] = 0.0
+
+    pq: list[tuple[float, str]] = [(0.0, source)]
+
+    while pq:
+        d_u, u = heapq.heappop(pq)
+        if d_u > dist[u]:
+            continue
+
+        for v, w in graph.neighbors(u).items():
+            if w < 0:
+                raise ValueError("Dijkstra requiere pesos no negativos")
+            alt = d_u + w
+            if alt < dist.get(v, math.inf):
+                dist[v] = alt
+                prev[v] = u
+                # next-hop: si estoy en el origen, el primer salto hacia v es v;
+                # si no, heredo el primer salto que lleva hasta 'u'
+                nh[v] = v if u == source else nh[u]
+                heapq.heappush(pq, (alt, v))
+
+    return dist, prev, nh
+
+
+# ------------------------------
+# CLI (igual al tuyo, con opciones extra)
+# ------------------------------
+def main() -> None:
+    ap = argparse.ArgumentParser(description="Dijkstra - Tabla de ruteo (next-hop) desde un origen.")
+    ap.add_argument("--topo", required=True, help="Ruta al archivo de topología (JSON).")
+    ap.add_argument("--source", required=True, help="Nodo origen.")
+    ap.add_argument("--json", action="store_true", help="Imprimir salida en JSON (envelope 'info').")
+    ap.add_argument("--directed", action="store_true", help="Tratar la topología como grafo dirigido.")
+    # extra opcional: imprimir solo mapa destino->next_hop para integraciones
+    ap.add_argument("--only-next-hops", action="store_true", help="Imprimir solo {dest: next_hop} en JSON.")
+    args = ap.parse_args()
+
+    with open(args.topo, "r", encoding="utf-8") as f:
+        topo = json.load(f)
+
+    g = Graph.from_topology(topo, directed=args.directed)
+    router = DijkstraRouter(g)
+    res = router.run(args.source)
+    table = router.build_forwarding_table(res, args.source)
+
+    if args.only-next-hops:
+        fib = DijkstraRouter.build_forwarding_map(res, args.source)
+        print(json.dumps(fib, indent=2, ensure_ascii=False))
+        return
+
+    if args.json:
+        print(json.dumps(envelope_info(args.source, table), indent=2, ensure_ascii=False))
+    else:
+        print_table_human(table, args.source)
+
+
+if __name__ == "__main__":
+    main()

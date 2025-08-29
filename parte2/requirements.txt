@@ -1,0 +1,19 @@
+# --- Dependencias para el laboratorio de enrutamiento ---
+
+# Redis Pub/Sub (para interoperar con los demás equipos)
+redis>=5.0.0
+
+# XMPP (fase 2 del laboratorio, se usará si migran a XMPP)
+slixmpp>=1.9.0
+
+# PyASN1 es requerido por slixmpp
+pyasn1>=0.6.1
+pyasn1-modules>=0.4.2
+
+# aiodns / pycares usados por slixmpp para DNS async
+aiodns>=3.2.0
+pycares>=4.9.0
+
+# Herramientas de desarrollo/debug
+# (no son obligatorias, pero útiles)
+maturin>=1.0.0 ; platform_system!="Windows"  # evita error de wheel si no hay Rust

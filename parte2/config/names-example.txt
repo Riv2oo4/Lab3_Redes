@@ -1,0 +1,1 @@
+{"type":"names","config": {"A":"alice@example.com","B":"bob@example.com","C":"carol@example.com"}}
